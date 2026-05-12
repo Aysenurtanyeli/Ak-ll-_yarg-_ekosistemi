@@ -1,0 +1,239 @@
+:root {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: #0f172a;
+  background: #f1f5f9;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+h1 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.panel {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+  color: #475569;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  background: #0f766e;
+  color: #fff;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.row > * {
+  flex: 1 1 200px;
+}
+
+.error {
+  color: #b91c1c;
+  font-size: 0.9rem;
+}
+
+.dropzone {
+  border: 2px dashed #94a3b8;
+  border-radius: 10px;
+  padding: 1rem;
+  text-align: center;
+  background: #f8fafc;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dropzone-active {
+  border-color: #0f766e;
+  background: #ecfdf5;
+}
+
+.dropzone-text {
+  margin: 0 0 0.65rem;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.btn-secondary {
+  border: 1px solid #0f766e;
+  border-radius: 8px;
+  padding: 0.45rem 0.9rem;
+  background: #fff;
+  color: #0f766e;
+  cursor: pointer;
+  font: inherit;
+}
+
+.btn-secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.pdf-drop-field {
+  margin-top: 0.75rem;
+}
+
+.pdf-drop-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 0.25rem;
+}
+
+.pdf-drop-hint {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+.pdf-status {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #0f766e;
+}
+
+.pdf-status.warn {
+  color: #b45309;
+}
+
+.panel-intro {
+  margin: 0.75rem 0 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: #475569;
+}
+
+.belge-blok {
+  margin-top: 1.25rem;
+}
+
+.belge-baslik,
+.etiket-baslik {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.belge-liste {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.belge-satir {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.9rem;
+}
+
+.belge-satir:last-child {
+  border-bottom: none;
+}
+
+.belge-adi {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.belge-oz {
+  color: #64748b;
+}
+
+.etiket-blok {
+  margin-top: 1.25rem;
+}
+
+.etiket-aciklama {
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.etiket-kutu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.etiket {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font: inherit;
+  font-size: 0.85rem;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.etiket:hover {
+  border-color: #0f766e;
+  color: #0f766e;
+}
+
+.etiket-secili {
+  background: #ecfdf5;
+  border-color: #0f766e;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.analiz-sonuc {
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}

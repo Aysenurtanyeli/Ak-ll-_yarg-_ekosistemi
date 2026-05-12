@@ -1,0 +1,15 @@
+# Hassas Veriler
+.env
+
+# Bağımlılıklar
+node_modules/
+frontend/node_modules/
+backend/__pycache__/
+.venv/
+venv/
+
+# Build çıktıları
+frontend/dist/
+
+# Diğer
+.DS_Store
