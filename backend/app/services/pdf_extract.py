@@ -32,7 +32,7 @@ def _ocr_pages_fitz(doc: Any) -> str:
                 img = img.convert("RGB")
             raw = pytesseract.image_to_string(img, lang="tur+eng")
             if raw.strip():
-                parts.append(raw)
+                parts.append(f"[[SAYFA:{i + 1}]]\n{raw}")
         except Exception:
             continue
     return "\n\n".join(parts).strip()
@@ -51,7 +51,9 @@ def extract_text_from_pdf(data: bytes, *, ocr_if_sparse: bool = True) -> PdfExtr
     try:
         direct_parts: list[str] = []
         for i in range(len(doc)):
-            direct_parts.append(doc[i].get_text("text") or "")
+            page_text = doc[i].get_text("text") or ""
+            if page_text.strip():
+                direct_parts.append(f"[[SAYFA:{i + 1}]]\n{page_text}")
         text = "\n\n".join(direct_parts).strip()
         used_ocr = False
         warning = None

@@ -3,7 +3,6 @@ uvicorn[standard]>=0.32.0
 sqlalchemy[asyncio]>=2.0.36
 asyncpg>=0.30.0
 pydantic-settings>=2.6.0
-openai>=1.55.0
 pinecone>=5.4.0
 python-multipart>=0.0.12
 pymupdf>=1.24.0

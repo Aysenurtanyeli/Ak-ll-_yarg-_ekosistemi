@@ -80,7 +80,7 @@ async def pdf_extract_text(file: UploadFile = File(...)) -> PdfExtractResponse:
 @router.post("/pdf/ingest", response_model=PdfIngestResponse)
 async def pdf_ingest(
     db: AsyncSession = Depends(get_db),
-    case_id: UUID = Form(...),
+    case_id: str | None = Form(None),
     file: UploadFile = File(...),
     dokuman_turu: str = Form("Genel"),
     kisi_adi: str = Form(""),
@@ -93,7 +93,22 @@ async def pdf_ingest(
     if len(raw) > MAX_PDF_BYTES:
         raise HTTPException(status_code=413, detail="PDF en fazla 25 MB olabilir.")
 
-    case = await db.get(CaseFile, case_id)
+    safe_name = file.filename or "belge.pdf"
+    case_id_raw = (case_id or "").strip()
+    resolved_case_id: UUID | None = None
+    if case_id_raw:
+        try:
+            resolved_case_id = UUID(case_id_raw)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail="Dosya kimliği geçerli bir UUID olmalıdır.") from e
+
+    if resolved_case_id is None:
+        case = CaseFile(title=safe_name, hukuki_ozet="")
+        db.add(case)
+        await db.flush()
+        resolved_case_id = case.id
+
+    case = await db.get(CaseFile, resolved_case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Dosya bulunamadı")
 
@@ -109,7 +124,7 @@ async def pdf_ingest(
 
     doc = Document(
         id=uuid4(),
-        case_id=case_id,
+        case_id=resolved_case_id,
         filename=safe_name,
         raw_text=extracted.text,
         dokuman_turu=dokuman_turu,
@@ -120,18 +135,24 @@ async def pdf_ingest(
     await db.commit()
     await db.refresh(doc)
 
-    n = await upsert_document_vectors(
-        db,
-        case_id=case_id,
-        document_id=doc.id,
-        text=extracted.text,
-        dokuman_turu=dokuman_turu,
-        kisi_adi=kisi_adi,
-        tarih_iso=tarih_str,
-    )
+    warning_parts = [w for w in [extracted.warning] if w]
+    try:
+        n = await upsert_document_vectors(
+            db,
+            case_id=resolved_case_id,
+            document_id=doc.id,
+            text=extracted.text,
+            dokuman_turu=dokuman_turu,
+            kisi_adi=kisi_adi,
+            tarih_iso=tarih_str,
+        )
+    except Exception as e:
+        n = 0
+        warning_parts.append(f"Belge kaydedildi ancak vektör indeksleme tamamlanamadı: {e}")
     return PdfIngestResponse(
+        case_id=resolved_case_id,
         belge_kimligi=str(doc.id),
         indekslenen_parcalar=n,
         ocr_kullanildi=extracted.used_ocr,
-        uyari=extracted.warning,
+        uyari=" ".join(warning_parts) or None,
     )

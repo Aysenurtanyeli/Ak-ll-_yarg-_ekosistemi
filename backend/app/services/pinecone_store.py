@@ -6,12 +6,9 @@ import uuid
 from typing import Any
 
 from pinecone import Pinecone, ServerlessSpec
+from pinecone.exceptions import NotFoundException
 
 from app.config import get_settings
-
-# text-embedding-3-small boyutu
-EMBEDDING_DIM = 1536
-
 
 class PineconeStore:
     def __init__(self) -> None:
@@ -31,7 +28,7 @@ class PineconeStore:
         if name not in existing:
             self._pc.create_index(
                 name=name,
-                dimension=EMBEDDING_DIM,
+                dimension=s.embedding_dimension,
                 metric="cosine",
                 spec=ServerlessSpec(cloud=s.pinecone_cloud, region=s.pinecone_region),
             )
@@ -45,12 +42,18 @@ class PineconeStore:
     def delete_by_case(self, case_id: str) -> None:
         self._ensure()
         assert self._index is not None
-        self._index.delete(filter={"case_id": {"$eq": case_id}})
+        try:
+            self._index.delete(filter={"case_id": {"$eq": case_id}})
+        except NotFoundException:
+            return
 
     def delete_by_filter(self, filter_dict: dict[str, Any]) -> None:
         self._ensure()
         assert self._index is not None
-        self._index.delete(filter=filter_dict)
+        try:
+            self._index.delete(filter=filter_dict)
+        except NotFoundException:
+            return
 
     def query(
         self,

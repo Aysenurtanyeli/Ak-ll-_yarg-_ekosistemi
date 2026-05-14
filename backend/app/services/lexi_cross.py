@@ -1,14 +1,11 @@
 from uuid import UUID
 
-from openai import AsyncOpenAI
-
-from app.config import get_settings
 from app.services.embeddings import embed_texts
-from app.services.pinecone_store import store
+from app.services.llm import chat_completion
+from app.services.vector_store import store
 
 
-def _build_pinecone_filter(case_id: str, meta: dict) -> dict:
-    """Parça üst verisini vektör veri tabanı süzgecine dönüştürür."""
+def _build_vector_filter(case_id: str, meta: dict) -> dict:
     parts: list[dict] = [{"case_id": {"$eq": case_id}}]
     for k, v in meta.items():
         if v is None or v == "":
@@ -26,44 +23,52 @@ async def cross_exam_rag(
     metadata_filters: list[dict],
     top_k: int,
 ) -> tuple[str, list[str]]:
-    """Üst veri süzgeçli anlamsal arama ile metin kümeleri arasında tutarsızlık değerlendirmesi."""
-    settings = get_settings()
     cid = str(case_id)
     qvec = (await embed_texts([sorgu]))[0]
 
     retrieved_blocks: list[str] = []
     for filt in metadata_filters:
-        fl = _build_pinecone_filter(cid, filt)
+        fl = _build_vector_filter(cid, filt)
         hits = store.query(qvec, top_k=max(2, top_k // max(len(metadata_filters), 1)), filter_dict=fl)
         for h in hits:
             meta = h.get("metadata") or {}
-            # Üst veride metin özeti tutulur
             excerpt = str(meta.get("text_excerpt", ""))
             if excerpt:
-                retrieved_blocks.append(excerpt)
+                source = str(meta.get("source_ref") or "Kaynak konumu belirtilmedi")
+                doc_type = str(meta.get("dokuman_turu") or "Belge")
+                person = str(meta.get("kisi_adi") or "").strip()
+                label = f"{source} | {doc_type}{f' | {person}' if person else ''}"
+                retrieved_blocks.append(f"[KAYNAK: {label}]\n{excerpt}")
 
     if not metadata_filters:
         hits = store.query(qvec, top_k=top_k, filter_dict={"case_id": {"$eq": cid}})
         for h in hits:
-            excerpt = str((h.get("metadata") or {}).get("text_excerpt", ""))
+            meta = h.get("metadata") or {}
+            excerpt = str(meta.get("text_excerpt", ""))
             if excerpt:
-                retrieved_blocks.append(excerpt)
+                source = str(meta.get("source_ref") or "Kaynak konumu belirtilmedi")
+                doc_type = str(meta.get("dokuman_turu") or "Belge")
+                person = str(meta.get("kisi_adi") or "").strip()
+                label = f"{source} | {doc_type}{f' | {person}' if person else ''}"
+                retrieved_blocks.append(f"[KAYNAK: {label}]\n{excerpt}")
 
     context = "\n\n---\n\n".join(retrieved_blocks[:24])
-    client = AsyncOpenAI(api_key=settings.openai_api_key or None)
     prompt = (
-        "Aşağıdaki hukuki metin parçalarını ve kullanıcı sorusunu dikkatlice oku. "
-        "Mantıksal veya olgusal tutarsızlık, zaman çelişkisi veya delil–ifade uyumsuzluğu var mı? "
-        "Türkçe, maddeler halinde ve ihtiyatlı bir dille yanıtla. Belirsizse belirt.\n\n"
+        "Asagidaki hukuki metin parcalarini ve kullanici sorusunu dikkatlice oku. "
+        "Her parcanin basinda [KAYNAK: Sayfa X, Paragraf Y | ...] etiketi vardir. "
+        "Yalnizca bu kaynaklara dayanarak konus; kaynakta olmayan bir iddiayi kesin ifade etme. "
+        "Cevabi su formatta ver:\n"
+        "1. Kaynakli Analiz: Her madde sonunda mutlaka [Sayfa X, Paragraf Y] biciminde kaynak yaz.\n"
+        "2. Hukuktan Turkceye: Bulgulari vatandasin anlayacagi sade dille acikla.\n"
+        "3. Avukat Gorus Notu Icin Oz: Kisa, delile dayali bir ozet ver.\n"
+        "Eger sayfa/paragraf yoksa [Kaynak konumu belirtilmedi] yaz. Belirsizse belirt.\n\n"
         f"Soru: {sorgu}\n\nMetinler:\n{context}"
     )
-    resp = await client.chat.completions.create(
-        model=settings.chat_model,
-        messages=[
-            {"role": "system", "content": "Sen dikkatli bir hukuk yardımcısısın; kesin hüküm vermezsin."},
+    answer = await chat_completion(
+        [
+            {"role": "system", "content": "Sen dikkatli bir hukuk yardimcisisin; kesin hukum vermezsin."},
             {"role": "user", "content": prompt},
         ],
         temperature=0.15,
     )
-    answer = resp.choices[0].message.content or ""
     return answer, retrieved_blocks

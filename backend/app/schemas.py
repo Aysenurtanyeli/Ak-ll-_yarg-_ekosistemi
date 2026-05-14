@@ -21,6 +21,7 @@ class PdfExtractResponse(BaseModel):
 
 
 class PdfIngestResponse(BaseModel):
+    case_id: UUID
     belge_kimligi: str
     indekslenen_parcalar: int
     ocr_kullanildi: bool = False

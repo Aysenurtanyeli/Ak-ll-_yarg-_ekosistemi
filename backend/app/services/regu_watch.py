@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models import AlertNotification, CaseFile, ProcessedFeedItem
 from app.services.embeddings import embed_texts
-from app.services.pinecone_store import store
+from app.services.vector_store import store
 
 
 def _item_guid(entry: dict[str, Any], feed_url: str) -> str:

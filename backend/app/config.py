@@ -1,16 +1,31 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+PROJECT_DIR = BACKEND_DIR.parent
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(PROJECT_DIR / ".env", BACKEND_DIR / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     database_url: str = "postgresql+asyncpg://lexiguard:lexiguard@localhost:5432/lexiguard"
 
-    openai_api_key: str = ""
-    embedding_model: str = "text-embedding-3-small"
-    chat_model: str = "gpt-4o"
+    embedding_provider: str = "ollama"
+    embedding_model: str = "nomic-embed-text"
+    embedding_dimension: int = 768
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    chat_provider: str = "ollama"
+    chat_model: str = "gemma3:4b"
+    vision_model: str = "gemma3:4b"
+
+    vector_store_provider: str = "local"
+    local_vector_store_path: str = str(PROJECT_DIR / "backend" / "data" / "vectors.json")
 
     pinecone_api_key: str = ""
     pinecone_index_name: str = "lexiguard"

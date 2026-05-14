@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import CaseFile
 from app.services.chunking import chunk_legal_document, chunks_for_hukuki_ozet
 from app.services.embeddings import embed_texts
-from app.services.pinecone_store import store, vector_id
+from app.services.vector_store import store, vector_id
 
 
 def _excerpt(text: str, n: int = 3200) -> str:
