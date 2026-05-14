@@ -14,7 +14,7 @@ class PdfExtractResult:
     warning: str | None = None
 
 
-def _ocr_pages_fitz(doc: Any) -> str:
+def _ocr_pages_fitz(doc: Any, *, max_pages: int = 3, dpi: int = 140) -> str:
     try:
         from PIL import Image
         import pytesseract
@@ -22,10 +22,10 @@ def _ocr_pages_fitz(doc: Any) -> str:
         return ""
 
     parts: list[str] = []
-    for i in range(len(doc)):
+    for i in range(min(len(doc), max_pages)):
         page = doc[i]
         try:
-            pix = page.get_pixmap(dpi=200, alpha=False)
+            pix = page.get_pixmap(dpi=dpi, alpha=False)
             mode = "RGB" if pix.n < 4 else "RGBA"
             img = Image.frombytes(mode, (pix.width, pix.height), pix.samples)
             if mode == "RGBA":
@@ -63,6 +63,8 @@ def extract_text_from_pdf(data: bytes, *, ocr_if_sparse: bool = True) -> PdfExtr
             if len(ocr_text) > len(text):
                 text = ocr_text
                 used_ocr = True
+            if used_ocr and len(doc) > 3:
+                warning = "OCR hiz icin ilk 3 sayfada calistirildi; uzun tarama PDF'lerinde tam metin daha sonra eklenebilir."
 
         if len(text.strip()) < 15:
             warning = (

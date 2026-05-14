@@ -26,6 +26,7 @@ class PdfIngestResponse(BaseModel):
     indekslenen_parcalar: int
     ocr_kullanildi: bool = False
     uyari: str | None = None
+    indeksleme_durumu: str = "tamamlandi"
 
 
 class TimelineEvent(BaseModel):
@@ -92,6 +93,14 @@ class NotificationOut(BaseModel):
     source_url: str
     similarity: float
     read: bool
+
+
+class DecisionSimulationRequest(BaseModel):
+    case_id: UUID
+    baslik: str = "Yargitay yeni tazminat hesaplama karari"
+    konu: str = "tazminat hesaplamasi"
+    hukuki_gerekce: str = "kusur, zarar, bilirkisi raporu ve tazminat hesabi"
+    source_url: str = "simule://leksialert/yeni-karar"
 
 
 class CaseUpdate(BaseModel):
