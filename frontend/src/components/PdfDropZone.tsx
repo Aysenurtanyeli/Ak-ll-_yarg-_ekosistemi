@@ -5,23 +5,39 @@ type Props = {
   hint?: string;
   disabled?: boolean;
   onPdfFile: (file: File) => void | Promise<void>;
+  onImageFile?: (file: File) => void | Promise<void>;
 };
 
-export function PdfDropZone({ label, hint, disabled, onPdfFile }: Props) {
+const imageTypes = new Set(["image/jpeg", "image/png"]);
+
+export function PdfDropZone({
+  label,
+  hint,
+  disabled,
+  onPdfFile,
+  onImageFile,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
 
   const handleFiles = useCallback(
     async (files: FileList | null) => {
       if (!files?.length || disabled) return;
-      const f = files[0];
-      if (!f.name.toLowerCase().endsWith(".pdf")) {
-        window.alert("Lütfen yalnızca PDF dosyası seçin.");
-        return;
+      for (const f of Array.from(files)) {
+        if (f.name.toLowerCase().endsWith(".pdf")) {
+          await onPdfFile(f);
+        } else if (onImageFile && imageTypes.has(f.type)) {
+          await onImageFile(f);
+        } else {
+          window.alert(
+            onImageFile
+              ? "Lütfen PDF, JPG veya PNG dosyası seçin."
+              : "Lütfen yalnızca PDF dosyası seçin.",
+          );
+        }
       }
-      await onPdfFile(f);
     },
-    [disabled, onPdfFile]
+    [disabled, onImageFile, onPdfFile],
   );
 
   return (
@@ -42,7 +58,11 @@ export function PdfDropZone({ label, hint, disabled, onPdfFile }: Props) {
           void handleFiles(e.dataTransfer.files);
         }}
       >
-        <p className="dropzone-text">PDF sürükleyip bırakın veya dosya seçin</p>
+        <p className="dropzone-text">
+          {onImageFile
+            ? "PDF veya fotoğraf sürükleyip bırakın"
+            : "PDF sürükleyip bırakın veya dosya seçin"}
+        </p>
         <button
           type="button"
           className="btn-secondary"
@@ -54,7 +74,12 @@ export function PdfDropZone({ label, hint, disabled, onPdfFile }: Props) {
         <input
           ref={inputRef}
           type="file"
-          accept="application/pdf,.pdf"
+          accept={
+            onImageFile
+              ? "application/pdf,.pdf,image/jpeg,image/png"
+              : "application/pdf,.pdf"
+          }
+          multiple={Boolean(onImageFile)}
           hidden
           disabled={disabled}
           onChange={(e) => {

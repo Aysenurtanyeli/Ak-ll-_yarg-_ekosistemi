@@ -22,6 +22,7 @@ async def cross_exam_rag(
     sorgu: str,
     metadata_filters: list[dict],
     top_k: int,
+    visual_findings: list[str] | None = None,
 ) -> tuple[str, list[str]]:
     cid = str(case_id)
     qvec = (await embed_texts([sorgu]))[0]
@@ -53,16 +54,28 @@ async def cross_exam_rag(
                 retrieved_blocks.append(f"[KAYNAK: {label}]\n{excerpt}")
 
     context = "\n\n---\n\n".join(retrieved_blocks[:24])
+    visual_context = "\n\n".join(
+        f"[GORSEL KANIT {index + 1}]\n{finding}"
+        for index, finding in enumerate(visual_findings or [])
+        if finding.strip()
+    )
+    visual_instruction = (
+        "Metin belgelerindeki iddiaları, yüklenen görsellerdeki fiziksel bulgularla kıyasla "
+        "ve çelişki varsa raporla. Görsel bulgu yoksa bunu ayrı bir eksiklik olarak belirt. "
+        if visual_context
+        else ""
+    )
     prompt = (
         "Asagidaki hukuki metin parcalarini ve kullanici sorusunu dikkatlice oku. "
         "Her parcanin basinda [KAYNAK: Sayfa X, Paragraf Y | ...] etiketi vardir. "
         "Yalnizca bu kaynaklara dayanarak konus; kaynakta olmayan bir iddiayi kesin ifade etme. "
+        f"{visual_instruction}"
         "Cevabi su formatta ver:\n"
         "1. Kaynakli Analiz: Her madde sonunda mutlaka [Sayfa X, Paragraf Y] biciminde kaynak yaz.\n"
         "2. Hukuktan Turkceye: Bulgulari vatandasin anlayacagi sade dille acikla.\n"
         "3. Avukat Gorus Notu Icin Oz: Kisa, delile dayali bir ozet ver.\n"
         "Eger sayfa/paragraf yoksa [Kaynak konumu belirtilmedi] yaz. Belirsizse belirt.\n\n"
-        f"Soru: {sorgu}\n\nMetinler:\n{context}"
+        f"Soru: {sorgu}\n\nMetinler:\n{context}\n\nGorsel bulgular:\n{visual_context or 'Gorsel kanit yuklenmedi.'}"
     )
     answer = await chat_completion(
         [

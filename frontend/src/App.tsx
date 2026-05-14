@@ -1,5 +1,5 @@
 import axios from "axios";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { PdfDropZone } from "./components/PdfDropZone";
 
 type TimelineEvent = {
@@ -15,6 +15,10 @@ type PdfIngestResponse = {
   indekslenen_parcalar: number;
   ocr_kullanildi: boolean;
   uyari: string | null;
+  dosya_adi?: string;
+  dokuman_turu?: string;
+  kisi_adi?: string;
+  tarih_iso?: string | null;
 };
 
 type BelgeRow = {
@@ -25,46 +29,34 @@ type BelgeRow = {
   tarih_iso: string | null;
 };
 
+type EvidenceImage = {
+  id: string;
+  file: File;
+  url: string;
+  tarih_iso: string;
+};
+
+type LexiNotification = {
+  id: string;
+  title: string;
+  message: string;
+  source_url: string;
+  similarity: number;
+  read: boolean;
+};
+
 const api = axios.create({ baseURL: "/api/v1" });
 
 function apiErrorMessage(error: unknown, fallback: string) {
   if (axios.isAxiosError(error)) {
     const detail = error.response?.data?.detail;
-    if (typeof detail === "string" && detail.trim()) {
-      return detail;
-    }
+    if (typeof detail === "string" && detail.trim()) return detail;
     if (Array.isArray(detail) && detail.length > 0) {
       return detail.map((item) => item?.msg || JSON.stringify(item)).join(" ");
     }
-    if (error.message) {
-      return error.message;
-    }
+    if (error.message) return error.message;
   }
   return fallback;
-}
-
-function etiketAnahtar(
-  d: Pick<BelgeRow, "dokuman_turu" | "kisi_adi" | "tarih_iso">,
-) {
-  return JSON.stringify([d.dokuman_turu, d.kisi_adi, d.tarih_iso ?? ""]);
-}
-
-function etiketEtiketGoster(
-  d: Pick<BelgeRow, "dokuman_turu" | "kisi_adi" | "tarih_iso">,
-) {
-  const k = (d.kisi_adi || "").trim() || "Kişi belirtilmedi";
-  const t = (d.tarih_iso || "").trim();
-  const tarihGoster = t ? t.slice(0, 10) : "Tarih yok";
-  return `${d.dokuman_turu} · ${k} · ${tarihGoster}`;
-}
-
-function etikettenFiltre(anahtar: string): Record<string, string> {
-  const a = JSON.parse(anahtar) as [string, string, string];
-  const [dokuman_turu, kisi_adi, tarih] = a;
-  const o: Record<string, string> = { dokuman_turu };
-  if ((kisi_adi || "").trim()) o.kisi_adi = kisi_adi;
-  if ((tarih || "").trim()) o.tarih = tarih;
-  return o;
 }
 
 function escapeHtml(value: string) {
@@ -77,10 +69,10 @@ function escapeHtml(value: string) {
 
 function splitAnalysisSections(text: string) {
   const sections: Array<{ title: string; body: string }> = [];
-  let currentTitle = "Analiz";
+  let currentTitle = "Çapraz Sorgu";
   let currentLines: string[] = [];
   const headingRe =
-    /^\s*(?:\d+\.\s*)?(Kaynakl[ıi] Analiz|Hukuktan T[üu]rk[çc]eye|Avukat G[öo]r[üu][şs] Notu I[çc]in [ÖO]z|Avukat G[öo]r[üu][şs] Notu İçin Öz)\s*:?\s*$/i;
+    /^\s*(?:\d+\.\s*)?(Kaynaklı Analiz|Kaynakli Analiz|Hukuktan Türkçeye|Hukuktan Turkceye|Avukat Görüş Notu İçin Öz|Avukat Gorus Notu Icin Oz)\s*:?\s*$/i;
 
   for (const line of text.split(/\r?\n/)) {
     const match = line.match(headingRe);
@@ -98,37 +90,28 @@ function splitAnalysisSections(text: string) {
   if (currentLines.join("\n").trim()) {
     sections.push({ title: currentTitle, body: currentLines.join("\n").trim() });
   }
-  return sections.length ? sections : [{ title: "Analiz", body: text }];
+  return sections.length ? sections : [{ title: "Çapraz Sorgu", body: text }];
 }
 
-function CitationText({ text }: { text: string }) {
-  const parts = text.split(/(\[(?:Sayfa \d+(?:,\s*Paragraf \d+)?|Kaynak konumu belirtilmedi)\])/g);
-  return (
-    <>
-      {parts.map((part, index) => {
-        if (/^\[(?:Sayfa \d+(?:,\s*Paragraf \d+)?|Kaynak konumu belirtilmedi)\]$/.test(part)) {
-          return (
-            <span className="source-badge" key={`${part}-${index}`}>
-              {part.slice(1, -1)}
-            </span>
-          );
-        }
-        return <span key={`${part}-${index}`}>{part}</span>;
-      })}
-    </>
-  );
+function docIcon(type: string) {
+  const normalized = type.toLocaleLowerCase("tr-TR");
+  if (normalized.includes("ifade")) return "IF";
+  if (normalized.includes("rapor")) return "RP";
+  if (normalized.includes("foto")) return "FT";
+  return "BL";
+}
+
+function displayDate(value?: string | null) {
+  return value ? value.slice(0, 10) : "Tarih AI bekliyor";
 }
 
 function AnalysisOutput({ text }: { text: string }) {
-  const sections = splitAnalysisSections(text);
   return (
-    <div className="analysis-grid">
-      {sections.map((section) => (
+    <div className="analysis-stack">
+      {splitAnalysisSections(text).map((section) => (
         <section className="analysis-section" key={section.title}>
           <h3>{section.title}</h3>
-          <div className="analysis-copy">
-            <CitationText text={section.body} />
-          </div>
+          <p>{section.body}</p>
         </section>
       ))}
     </div>
@@ -137,260 +120,163 @@ function AnalysisOutput({ text }: { text: string }) {
 
 export default function App() {
   const [caseId, setCaseId] = useState("");
+  const [belgeler, setBelgeler] = useState<BelgeRow[]>([]);
+  const [evidenceImages, setEvidenceImages] = useState<EvidenceImage[]>([]);
+  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(() => new Set());
+  const [selectedImages, setSelectedImages] = useState<Set<string>>(() => new Set());
   const [events, setEvents] = useState<TimelineEvent[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [answer, setAnswer] = useState("");
+  const [notifications, setNotifications] = useState<LexiNotification[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [chronDocType, setChronDocType] = useState("Genel");
-  const [chronKisi, setChronKisi] = useState("");
-  const [chronTarih, setChronTarih] = useState("");
-  const [chronPdfBusy, setChronPdfBusy] = useState(false);
-  const [chronPdfMsg, setChronPdfMsg] = useState<string | null>(null);
-
-  const [cxCaseId, setCxCaseId] = useState("");
-  const [cxQuery, setCxQuery] = useState(
-    "Bu dosyadaki ifadeler ile teknik raporlar arasında çelişki var mı? Varsa maddeler halinde özetle.",
-  );
-  const [cxAnswer, setCxAnswer] = useState("");
-  const [cxLoading, setCxLoading] = useState(false);
-  const [cxBelgeTur, setCxBelgeTur] = useState("Genel");
-  const [cxBelgeKisi, setCxBelgeKisi] = useState("");
-  const [cxBelgeTarih, setCxBelgeTarih] = useState("");
-  const [cxPdfBusy, setCxPdfBusy] = useState(false);
-  const [cxPdfMsg, setCxPdfMsg] = useState<string | null>(null);
-  const [visionPrompt, setVisionPrompt] = useState(
-    "Görselde fren izi, araç hasarı, yol durumu, trafik işareti veya olay yeri açısından hukuki önem taşıyabilecek bulguları incele. Görsel net değilse hangi açıdan veya hangi orijinal fotoğrafla tekrar yüklenmesi gerektiğini belirt.",
-  );
-  const [visionAnswer, setVisionAnswer] = useState("");
-  const [visionBusy, setVisionBusy] = useState(false);
-  const [belgeler, setBelgeler] = useState<BelgeRow[]>([]);
-  const [secilenEtiketler, setSecilenEtiketler] = useState<Set<string>>(
-    () => new Set(),
+  const selectedPdfRows = useMemo(
+    () => belgeler.filter((doc) => selectedDocs.has(doc.id)),
+    [belgeler, selectedDocs],
   );
 
-  const benzersizEtiketler = useMemo(() => {
-    const m = new Map<
-      string,
-      Pick<BelgeRow, "dokuman_turu" | "kisi_adi" | "tarih_iso">
-    >();
-    for (const b of belgeler) {
-      const k = etiketAnahtar(b);
-      if (!m.has(k))
-        m.set(k, {
-          dokuman_turu: b.dokuman_turu,
-          kisi_adi: b.kisi_adi,
-          tarih_iso: b.tarih_iso,
-        });
-    }
-    return Array.from(m.entries());
-  }, [belgeler]);
+  const selectedImageRows = useMemo(
+    () => evidenceImages.filter((image) => selectedImages.has(image.id)),
+    [evidenceImages, selectedImages],
+  );
 
-  const belgeleriYukle = useCallback(async (dosyaKimligi: string) => {
-    try {
-      const { data } = await api.get<BelgeRow[]>(
-        `/cases/${dosyaKimligi}/belgeler`,
-      );
-      setBelgeler(Array.isArray(data) ? data : []);
-    } catch {
-      setBelgeler([]);
-    }
+  const hasData = belgeler.length > 0 || evidenceImages.length > 0;
+
+  const belgeleriYukle = useCallback(async (id: string) => {
+    const { data } = await api.get<BelgeRow[]>(`/cases/${id}/belgeler`);
+    const rows = Array.isArray(data) ? data : [];
+    setBelgeler(rows);
+    setSelectedDocs((prev) => {
+      const next = new Set(prev);
+      rows.forEach((row) => next.add(row.id));
+      return next;
+    });
   }, []);
 
-  useEffect(() => {
-    const id = cxCaseId.trim();
-    if (
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        id,
-      )
-    ) {
-      setBelgeler([]);
-      setSecilenEtiketler(new Set());
-      return;
-    }
-    const t = window.setTimeout(() => {
-      void belgeleriYukle(id);
-    }, 350);
-    return () => window.clearTimeout(t);
-  }, [cxCaseId, belgeleriYukle]);
+  async function bildirimleriYukle(id: string) {
+    const { data } = await api.get<LexiNotification[]>("/lexi-alert/notifications", {
+      params: { case_id: id },
+    });
+    setNotifications(Array.isArray(data) ? data : []);
+  }
 
-  const ingestChronPdf = useCallback(
+  const ingestPdf = useCallback(
     async (file: File) => {
-      const currentCaseId = caseId.trim();
-      setChronPdfBusy(true);
-      setChronPdfMsg(null);
+      setUploadBusy(true);
+      setStatus(null);
+      setError(null);
       try {
         const fd = new FormData();
-        if (currentCaseId) {
-          fd.append("case_id", currentCaseId);
-        }
+        if (caseId.trim()) fd.append("case_id", caseId.trim());
         fd.append("file", file);
-        fd.append("dokuman_turu", chronDocType);
-        fd.append("kisi_adi", chronKisi);
-        if (chronTarih.trim()) {
-          fd.append("tarih", chronTarih.trim());
-        }
-        const { data } = await api.post<PdfIngestResponse>(
-          "/documents/pdf/ingest",
-          fd,
-        );
+        const { data } = await api.post<PdfIngestResponse>("/documents/pdf/ingest", fd);
         setCaseId(data.case_id);
-        let msg =
-          data.indekslenen_parcalar > 0
-            ? `Vektör veri tabanına indekslendi: ${data.indekslenen_parcalar} parça. Belge no: ${data.belge_kimligi}`
-            : `Belge kaydedildi. Vektör indeksleme beklemede/atlanmış görünüyor. Belge no: ${data.belge_kimligi}`;
-        if (data.ocr_kullanildi) msg += " (görüntüden metin tanıma kullanıldı)";
-        if (data.uyari) msg += ` — ${data.uyari}`;
-        setChronPdfMsg(
-          `${currentCaseId ? "PDF mevcut dosyaya eklendi." : "Yeni dosya oluşturuldu; ID otomatik atandı."} ${msg}`,
-        );
-      } catch (err) {
-        setChronPdfMsg(
-          apiErrorMessage(
-            err,
-            "PDF yüklenemedi veya metin çıkarılamadı. Sunucu yapılandırmasını, anahtarları ve ağ erişimini kontrol edin.",
-          ),
-        );
-      } finally {
-        setChronPdfBusy(false);
-      }
-    },
-    [caseId, chronDocType, chronKisi, chronTarih],
-  );
-
-  const ingestCrossPdf = useCallback(
-    async (file: File) => {
-      const currentCaseId = cxCaseId.trim();
-      setCxPdfBusy(true);
-      setCxPdfMsg(null);
-      try {
-        const fd = new FormData();
-        if (currentCaseId) {
-          fd.append("case_id", currentCaseId);
-        }
-        fd.append("file", file);
-        fd.append("dokuman_turu", cxBelgeTur);
-        fd.append("kisi_adi", cxBelgeKisi);
-        if (cxBelgeTarih.trim()) {
-          fd.append("tarih", cxBelgeTarih.trim());
-        }
-        const { data } = await api.post<PdfIngestResponse>(
-          "/documents/pdf/ingest",
-          fd,
-        );
-        setCxCaseId(data.case_id);
-        let msg =
-          data.indekslenen_parcalar > 0
-            ? `Eklendi: ${data.indekslenen_parcalar} parça indekslendi.`
-            : "Belge kaydedildi. Vektör indeksleme beklemede/atlanmış görünüyor.";
-        if (data.ocr_kullanildi) msg += " Görüntüden metin tanıma kullanıldı.";
-        if (data.uyari) msg += ` ${data.uyari}`;
-        setCxPdfMsg(
-          `${currentCaseId ? "PDF mevcut dosyaya eklendi." : "Yeni dosya oluşturuldu; ID otomatik atandı."} ${msg}`,
-        );
         await belgeleriYukle(data.case_id);
-      } catch (err) {
-        setCxPdfMsg(
-          apiErrorMessage(
-            err,
-            "Yükleme başarısız. Ağ erişimini ve sunucu anahtarlarını kontrol edin.",
-          ),
+        setSelectedDocs((prev) => new Set(prev).add(data.belge_kimligi));
+        setStatus(
+          `${data.dosya_adi || file.name} veri havuzuna eklendi. AI rozetleri: ${data.dokuman_turu || "Belge"} / ${data.kisi_adi || "Kişi yok"} / ${displayDate(data.tarih_iso)}`,
         );
+      } catch (err) {
+        setError(apiErrorMessage(err, "Belge yüklenemedi."));
       } finally {
-        setCxPdfBusy(false);
+        setUploadBusy(false);
       }
     },
-    [cxCaseId, cxBelgeTur, cxBelgeKisi, cxBelgeTarih, belgeleriYukle],
+    [belgeleriYukle, caseId],
   );
 
-  function etiketTikla(anahtar: string) {
-    setSecilenEtiketler((prev) => {
+  const addEvidenceImage = useCallback(async (file: File) => {
+    const id = `${file.name}-${file.lastModified}-${crypto.randomUUID()}`;
+    const image: EvidenceImage = {
+      id,
+      file,
+      url: URL.createObjectURL(file),
+      tarih_iso: new Date(file.lastModified || Date.now()).toISOString().slice(0, 10),
+    };
+    setEvidenceImages((prev) => [...prev, image]);
+    setSelectedImages((prev) => new Set(prev).add(id));
+    setStatus(`${file.name} fotoğraf kanıtı olarak zaman çizelgesine bağlandı.`);
+  }, []);
+
+  function toggleDoc(id: string) {
+    setSelectedDocs((prev) => {
       const next = new Set(prev);
-      if (next.has(anahtar)) next.delete(anahtar);
-      else next.add(anahtar);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
 
-  async function loadTimeline() {
+  function toggleImage(id: string) {
+    setSelectedImages((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function imagesForEvent(event: TimelineEvent) {
+    const date = (event.metadata_tarih || event.tarih || "").slice(0, 10);
+    return evidenceImages.filter((image) => image.tarih_iso === date);
+  }
+
+  async function runUnifiedAnalysis() {
+    if (!caseId.trim()) return;
+    setBusy(true);
     setError(null);
-    setLoading(true);
+    setAnswer("");
     try {
-      const { data } = await api.get<{ events: TimelineEvent[] }>(
-        `/lexi-chron/${caseId.trim()}`,
-      );
-      setEvents(data.events || []);
-    } catch (err) {
-      setError(
-        apiErrorMessage(
-          err,
-          "Zaman çizelgesi yüklenemedi. Dosya kimliğini ve sunucu erişimini kontrol edin.",
-        ),
-      );
-      setEvents([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function runCrossExam() {
-    setCxAnswer("");
-    setCxLoading(true);
-    try {
-      const metadata_filters =
-        secilenEtiketler.size === 0
-          ? []
-          : Array.from(secilenEtiketler).map((k) => etikettenFiltre(k));
-      const { data } = await api.post<{ cevap: string }>("/lexi-cross", {
-        case_id: cxCaseId.trim(),
-        sorgu: cxQuery,
+      const metadata_filters = selectedPdfRows.map((doc) => ({ document_id: doc.id }));
+      const request = {
+        case_id: caseId.trim(),
+        sorgu:
+          "Seçili metin ve görsel kanıtları birlikte incele. Çelişkileri, zaman uyumsuzluklarını, görsel kanıt bulgularını ve güncel yargı kararı uyumluluğu risklerini başlıklandır.",
         metadata_filters,
-        top_k: 10,
-      });
-      setCxAnswer(data.cevap);
-    } catch (e) {
-      setCxAnswer(
-        apiErrorMessage(
-          e,
-          "İstek tamamlanamadı. Ollama servisinin ve modellerin çalıştığını doğrulayın.",
-        ),
-      );
-    } finally {
-      setCxLoading(false);
-    }
-  }
-
-  async function analyzeEvidenceImage(file: File | null) {
-    if (!file) return;
-    setVisionAnswer("");
-    setVisionBusy(true);
-    try {
+        top_k: 12,
+      };
       const fd = new FormData();
-      fd.append("file", file);
-      fd.append("prompt", visionPrompt);
-      const { data } = await api.post<{ cevap: string }>("/vision/analyze", fd);
-      setVisionAnswer(data.cevap);
-    } catch (e) {
-      setVisionAnswer(
-        apiErrorMessage(
-          e,
-          "Görsel analiz tamamlanamadı. Ollama servisinin ve vision destekli modelin çalıştığını doğrulayın.",
-        ),
-      );
+      fd.append("body_json", JSON.stringify(request));
+      selectedImageRows.forEach((image) => fd.append("images", image.file));
+
+      const analysisPromise =
+        selectedImageRows.length > 0
+          ? api.post<{ cevap: string }>("/lexi-cross/with-images", fd)
+          : api.post<{ cevap: string }>("/lexi-cross", request);
+      const timelinePromise = api.get<{ events: TimelineEvent[] }>(`/lexi-chron/${caseId.trim()}`);
+      const alertPromise = api.post<LexiNotification | null>("/lexi-alert/simulate-decision", {
+        case_id: caseId.trim(),
+        baslik: "Yargıtay yeni tazminat ve delil değerlendirme kararı",
+        konu: "tazminat hesaplaması ve delil değerlendirmesi",
+        hukuki_gerekce: "kusur, zarar, bilirkişi raporu, fotoğraf delili ve çelişkili beyan",
+      });
+
+      const [analysis, timeline] = await Promise.all([
+        analysisPromise,
+        timelinePromise,
+        alertPromise,
+      ]);
+      setAnswer(analysis.data.cevap);
+      setEvents(timeline.data.events || []);
+      await bildirimleriYukle(caseId.trim());
+    } catch (err) {
+      setError(apiErrorMessage(err, "Analiz tamamlanamadı."));
     } finally {
-      setVisionBusy(false);
+      setBusy(false);
     }
   }
 
   function printAnalysis(kind: "Avukat Görüş Notu" | "Dilekçe Taslağı") {
-    const analysis = cxAnswer.trim();
-    const visual = visionAnswer.trim();
-    if (!analysis && !visual) return;
+    const analysis = answer.trim();
+    if (!analysis) return;
     const title = `${kind} - Akıllı Yargı Analizi`;
     const body =
       kind === "Dilekçe Taslağı"
-        ? `Sayın Mahkemeye,\n\nAşağıda belirtilen belge ve kanıt incelemesi kapsamında, dosyada öne çıkan hususların değerlendirilmesi arz olunur.\n\n${analysis}\n\nGörsel Kanıt Değerlendirmesi:\n${visual || "Görsel kanıt analizi eklenmemiştir."}\n\nSonuç ve Talep:\nDelile dayalı tespitlerin yargılama kapsamında dikkate alınmasını saygıyla arz ve talep ederiz.`
-        : `Konu: Belge ve kanıt inceleme notu\n\n${analysis}\n\nGörsel Kanıt Değerlendirmesi:\n${visual || "Görsel kanıt analizi eklenmemiştir."}`;
-    const html = `<!doctype html><html><head><title>${escapeHtml(title)}</title><style>body{font-family:Segoe UI,Arial,sans-serif;line-height:1.55;color:#172033;padding:32px}h1{font-size:24px}pre{white-space:pre-wrap;font:inherit}</style></head><body><h1>${escapeHtml(title)}</h1><pre>${escapeHtml(body)}</pre></body></html>`;
+        ? `Sayın Mahkemeye,\n\nSeçili belge ve görsel kanıtlar kapsamında yapılan AI incelemesi aşağıdadır.\n\n${analysis}\n\nSonuç ve Talep:\nDelile dayalı tespitlerin yargılama kapsamında dikkate alınmasını saygıyla arz ve talep ederiz.`
+        : `Konu: Belge, görsel kanıt ve içtihat uyumluluğu inceleme notu\n\n${analysis}`;
+    const html = `<!doctype html><html><head><title>${escapeHtml(title)}</title><style>body{font-family:Inter,Segoe UI,Arial,sans-serif;line-height:1.55;color:#172033;padding:32px}h1{font-size:24px}pre{white-space:pre-wrap;font:inherit}</style></head><body><h1>${escapeHtml(title)}</h1><pre>${escapeHtml(body)}</pre></body></html>`;
     const win = window.open("", "_blank");
     if (!win) return;
     win.document.write(html);
@@ -400,282 +286,165 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <header className="app-header">
+    <div className="app-shell">
+      <header className="topbar">
         <div>
-          <p className="eyebrow">Belge destekli hukuk analizi</p>
-          <h1>Akıllı Yargı Analizi</h1>
+          <p className="eyebrow">AI odaklı hukuk asistanı</p>
+          <h1>Akıllı Yargı Ekosistemi</h1>
         </div>
-        <span className="system-status">Ollama yerel model</span>
+        <div className="case-chip">{caseId ? `Dosya ${caseId.slice(0, 8)}` : "Yeni çalışma"}</div>
       </header>
 
-      <div className="panel">
-        <h2>Dosya zaman akışı</h2>
-        <div className="row">
-          <div>
-            <div className="field-label-row">
-              <label htmlFor="case">Dosya kimliği (UUID)</label>
-              <span className="auto-badge">Otomatik atanır</span>
-            </div>
-            <input
-              id="case"
-              placeholder="PDF yüklenince otomatik atanır"
-              value={caseId}
-              readOnly
-            />
-          </div>
-        </div>
-        <div className="row" style={{ marginTop: "0.75rem" }}>
-          <div>
-            <label htmlFor="chronDoc">Belge türü (üst veri)</label>
-            <input
-              id="chronDoc"
-              placeholder="İfade, Olay Yeri Raporu…"
-              value={chronDocType}
-              onChange={(e) => setChronDocType(e.target.value)}
-            />
-          </div>
-          <div>
-            <label htmlFor="chronKisi">Kişi adı (isteğe bağlı)</label>
-            <input
-              id="chronKisi"
-              value={chronKisi}
-              onChange={(e) => setChronKisi(e.target.value)}
-            />
-          </div>
-          <div>
-            <label htmlFor="chronTarih">Tarih (yıl-ay-gün, isteğe bağlı)</label>
-            <input
-              id="chronTarih"
-              placeholder="2024-01-15"
-              value={chronTarih}
-              onChange={(e) => setChronTarih(e.target.value)}
-            />
-          </div>
+      <section className="upload-band">
+        <div>
+          <h2>Akıllı Dosya Yükleme Alanı</h2>
+          <p>PDF, JPG ve PNG kanıtları tek havuzda toplayın; kişi, tarih ve belge türü rozetleri arka planda çıkarılır.</p>
         </div>
         <PdfDropZone
-          label="Belge yükle"
-          hint="PDF yüklendiğinde dosya kimliği otomatik oluşur ve metin analiz için indekslenir."
-          disabled={chronPdfBusy}
-          onPdfFile={ingestChronPdf}
+          label="Merkezi veri havuzu"
+          hint="Tüm belgeler aynı dosyada indekslenir ve tek Analiz Et butonuyla birlikte taranır."
+          disabled={uploadBusy}
+          onPdfFile={ingestPdf}
+          onImageFile={addEvidenceImage}
         />
-        {chronPdfMsg ? (
-          <p
-            className={
-              chronPdfMsg.includes("yüklenemedi") ||
-              chronPdfMsg.includes("başarısız")
-                ? "pdf-status warn"
-                : "pdf-status"
-            }
-          >
-            {chronPdfMsg}
-          </p>
-        ) : null}
-        <div style={{ marginTop: "0.75rem" }}>
-          <button
-            type="button"
-            disabled={loading || !caseId.trim()}
-            onClick={loadTimeline}
-          >
-            {loading ? "Yükleniyor..." : "Zaman akışını getir"}
-          </button>
-        </div>
-        {error && <p className="error">{error}</p>}
-        {events.length > 0 && (
-          <ol className="timeline-list">
-            {events.map((event, index) => (
-              <li className="timeline-item" key={`${event.tarih}-${index}`}>
-                <div className="timeline-date">
-                  {event.tarih || "Tarih yok"}
-                </div>
-                <div className="timeline-card">
-                  <h3>{event.olay || "Tarihli olay"}</h3>
-                  {(event.kaynak || event.metadata_tarih) && (
-                    <p>{event.kaynak || event.metadata_tarih}</p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
-        {!loading && !error && events.length === 0 && caseId && (
-          <p style={{ color: "#64748b" }}>
-            Bu dosya için olay bulunamadı veya henüz belge yüklenmedi.
-          </p>
-        )}
-      </div>
+      </section>
 
-      <div className="panel">
-        <h2>Belge karşılaştırma</h2>
-        <div className="row">
-          <div>
-            <div className="field-label-row">
-              <label htmlFor="cxCase">Dosya kimliği (UUID)</label>
-              <span className="auto-badge">Otomatik atanır</span>
-            </div>
-            <input
-              id="cxCase"
-              placeholder="PDF yüklenince otomatik atanır"
-              value={cxCaseId}
-              readOnly
-            />
+      {status ? <p className="toast success">{status}</p> : null}
+      {error ? <p className="toast error">{error}</p> : null}
+
+      <main className="workspace-grid">
+        <aside className="glass-panel file-sidebar">
+          <div className="panel-heading">
+            <span>Dosya Sidebar</span>
+            <small>{belgeler.length + evidenceImages.length} kayıt</small>
           </div>
-        </div>
 
-        <p className="panel-intro">
-          Belgeleri aynı dosyada toplayın, ardından sistemden ifadeler, raporlar
-          ve tarihler arasındaki uyumsuzlukları incelemesini isteyin.
-        </p>
-
-        <div className="row" style={{ marginTop: "0.75rem" }}>
-          <div>
-            <label htmlFor="cxDoc">Yüklenecek belgenin türü</label>
-            <input
-              id="cxDoc"
-              placeholder="İfade, rapor, tapu…"
-              value={cxBelgeTur}
-              onChange={(e) => setCxBelgeTur(e.target.value)}
-            />
-          </div>
-          <div>
-            <label htmlFor="cxKisi">İlgili kişi (isteğe bağlı)</label>
-            <input
-              id="cxKisi"
-              value={cxBelgeKisi}
-              onChange={(e) => setCxBelgeKisi(e.target.value)}
-            />
-          </div>
-          <div>
-            <label htmlFor="cxTar">Belge tarihi (isteğe bağlı)</label>
-            <input
-              id="cxTar"
-              placeholder="2024-01-15"
-              value={cxBelgeTarih}
-              onChange={(e) => setCxBelgeTarih(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <PdfDropZone
-          label="Karşılaştırılacak belgeleri yükle"
-          hint="Birden fazla belge için yükleme işlemini tekrarlayın; tüm belgeler aynı dosyada değerlendirilir."
-          disabled={cxPdfBusy}
-          onPdfFile={ingestCrossPdf}
-        />
-        {cxPdfMsg ? (
-          <p
-            className={
-              cxPdfMsg.includes("başarısız") ? "pdf-status warn" : "pdf-status"
-            }
-          >
-            {cxPdfMsg}
-          </p>
-        ) : null}
-
-        {belgeler.length > 0 && (
-          <div className="belge-blok">
-            <h3 className="belge-baslik">Yüklenen belgeler</h3>
-            <ul className="belge-liste">
-              {belgeler.map((b) => (
-                <li key={b.id} className="belge-satir">
-                  <span className="belge-adi">{b.dosya_adi}</span>
-                  <span className="belge-oz">
-                    {b.dokuman_turu}
-                    {(b.kisi_adi || "").trim() ? ` · ${b.kisi_adi}` : ""}
-                    {b.tarih_iso ? ` · ${b.tarih_iso.slice(0, 10)}` : ""}
+          <div className="file-list">
+            {belgeler.map((doc) => (
+              <label className="file-row" key={doc.id}>
+                <input
+                  type="checkbox"
+                  checked={selectedDocs.has(doc.id)}
+                  onChange={() => toggleDoc(doc.id)}
+                />
+                <span className="doc-icon">{docIcon(doc.dokuman_turu)}</span>
+                <span className="file-meta">
+                  <strong>{doc.dosya_adi}</strong>
+                  <span className="badge-line">
+                    <span>{doc.dokuman_turu || "Belge"}</span>
+                    <span>{doc.kisi_adi || "Kişi AI bekliyor"}</span>
+                    <span>{displayDate(doc.tarih_iso)}</span>
                   </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+                </span>
+              </label>
+            ))}
 
-        {benzersizEtiketler.length > 0 && (
-          <div className="etiket-blok">
-            <h3 className="etiket-baslik">İncelemede kullanılacak kayıtlar</h3>
-            <p className="etiket-aciklama">
-              Etiketlere tıklayarak analizin odaklanacağı kayıtları seçin.
-            </p>
-            <div className="etiket-kutu">
-              {benzersizEtiketler.map(([anahtar, d]) => (
-                <button
-                  key={anahtar}
-                  type="button"
-                  className={`etiket ${secilenEtiketler.has(anahtar) ? "etiket-secili" : ""}`}
-                  onClick={() => etiketTikla(anahtar)}
-                >
-                  {etiketEtiketGoster(d)}
-                </button>
-              ))}
+            {evidenceImages.map((image) => (
+              <label className="file-row" key={image.id}>
+                <input
+                  type="checkbox"
+                  checked={selectedImages.has(image.id)}
+                  onChange={() => toggleImage(image.id)}
+                />
+                <span className="doc-icon">FT</span>
+                <span className="file-meta">
+                  <strong>{image.file.name}</strong>
+                  <span className="badge-line">
+                    <span>Fotoğraf</span>
+                    <span>Görsel kanıt</span>
+                    <span>{image.tarih_iso}</span>
+                  </span>
+                </span>
+              </label>
+            ))}
+          </div>
+
+          {!hasData ? <p className="empty-note">Henüz belge yüklenmedi.</p> : null}
+        </aside>
+
+        <section className="glass-panel timeline-panel">
+          <div className="panel-heading">
+            <span>Zaman Çizelgesi</span>
+            <small>Otomatik olay çıkarımı</small>
+          </div>
+
+          {events.length > 0 ? (
+            <ol className="timeline-list">
+              {events.map((event, index) => {
+                const linkedImages = imagesForEvent(event);
+                return (
+                  <li className="timeline-item" key={`${event.tarih}-${index}`}>
+                    <div className="timeline-date">{event.tarih || "Tarih yok"}</div>
+                    <div className="timeline-card">
+                      <h3>{event.olay || "Tarihli olay"}</h3>
+                      {event.kaynak ? <p>{event.kaynak}</p> : null}
+                      {linkedImages.length > 0 ? (
+                        <div className="timeline-images">
+                          {linkedImages.map((image) => (
+                            <img src={image.url} alt={image.file.name} key={image.id} />
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <div className="timeline-empty">
+              <strong>Timeline analiz bekliyor</strong>
+              <span>Yüklenen belgelerden tarih, olay ve görsel bağlantıları tek analizde çıkarılacak.</span>
             </div>
-          </div>
-        )}
-
-        <div className="evidence-panel">
-          <div>
-            <h3 className="etiket-baslik">Görsel kanıt analizi</h3>
-            <p className="etiket-aciklama">
-              Fotoğraf yükleyerek hasar, iz, yol durumu veya olay yeri
-              bulgularını ayrıca inceletebilirsiniz.
-            </p>
-          </div>
-          <label htmlFor="visionPrompt">Görsel inceleme notu</label>
-          <textarea
-            id="visionPrompt"
-            rows={3}
-            value={visionPrompt}
-            onChange={(e) => setVisionPrompt(e.target.value)}
-          />
-          <div className="image-upload-row">
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              disabled={visionBusy}
-              onChange={(e) => {
-                void analyzeEvidenceImage(e.target.files?.[0] ?? null);
-                e.target.value = "";
-              }}
-            />
-          </div>
-          {visionAnswer && (
-            <div className="analiz-sonuc evidence-result">{visionAnswer}</div>
           )}
-        </div>
+        </section>
 
-        <div style={{ marginTop: "1rem" }}>
-          <label htmlFor="cxQ">Ne incelemek istiyorsunuz?</label>
-          <textarea
-            id="cxQ"
-            rows={4}
-            placeholder="Örn: Tanık ifadesi ile olay yeri tutanağı arasında saat veya yer bakımından bir uyumsuzluk var mı?"
-            value={cxQuery}
-            onChange={(e) => setCxQuery(e.target.value)}
-          />
-        </div>
+        <aside className="glass-panel ai-panel">
+          <div className="panel-heading">
+            <span>Yapay Zeka Analiz Merkezi</span>
+            <small>{selectedDocs.size + selectedImages.size} seçili</small>
+          </div>
 
-        <div style={{ marginTop: "0.75rem" }}>
           <button
             type="button"
-            disabled={cxLoading || !cxCaseId.trim()}
-            onClick={runCrossExam}
+            className="primary-action"
+            disabled={busy || !caseId.trim()}
+            onClick={runUnifiedAnalysis}
           >
-            {cxLoading ? "Analiz ediliyor…" : "Belgeleri analiz et"}
+            {busy ? "Analiz ediliyor..." : "Analiz Et"}
           </button>
-        </div>
-        {cxAnswer && (
-          <>
-            <AnalysisOutput text={cxAnswer} />
-            <div className="output-actions">
-              <button type="button" onClick={() => printAnalysis("Avukat Görüş Notu")}>
-                Avukat görüş notu PDF
-              </button>
-              <button type="button" onClick={() => printAnalysis("Dilekçe Taslağı")}>
-                Dilekçe taslağı PDF
-              </button>
+
+          {notifications.length > 0 ? (
+            <div className="alert-stack">
+              {notifications.slice(0, 3).map((notification) => (
+                <article className="decision-alert" key={notification.id}>
+                  <h3>{notification.title}</h3>
+                  <p>{notification.message}</p>
+                </article>
+              ))}
             </div>
-          </>
-        )}
-      </div>
+          ) : (
+            <p className="empty-note">Leksialert yeni karar uyarısı bekliyor.</p>
+          )}
+
+          {answer ? (
+            <>
+              <AnalysisOutput text={answer} />
+              <div className="output-actions">
+                <button type="button" onClick={() => printAnalysis("Avukat Görüş Notu")}>
+                  Görüş notu PDF
+                </button>
+                <button type="button" onClick={() => printAnalysis("Dilekçe Taslağı")}>
+                  Dilekçe taslağı PDF
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="analysis-placeholder">
+              <span>Çapraz sorgu, çelişki ve sade hukuk notları burada görünür.</span>
+            </div>
+          )}
+        </aside>
+      </main>
     </div>
   );
 }
