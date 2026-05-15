@@ -14,7 +14,7 @@ async def chat_completion(
     if provider == "ollama":
         url = f"{settings.ollama_base_url.rstrip('/')}/api/chat"
         try:
-            async with httpx.AsyncClient(timeout=180.0) as client:
+            async with httpx.AsyncClient(timeout=settings.chat_timeout_seconds) as client:
                 resp = await client.post(
                     url,
                     json={
@@ -71,7 +71,7 @@ async def vision_completion(
         },
     ]
     try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
+        async with httpx.AsyncClient(timeout=settings.vision_timeout_seconds) as client:
             resp = await client.post(
                 url,
                 json={

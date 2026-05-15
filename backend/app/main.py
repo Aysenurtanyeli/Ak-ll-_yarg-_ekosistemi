@@ -16,7 +16,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="LexiGuard",
-    description="Akıllı Yargı Ekosistemi için arka uç hizmetleri.",
+    description="Akıllı Yargı Ağı için arka uç hizmetleri.",
     lifespan=lifespan,
 )
 

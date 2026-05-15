@@ -60,14 +60,6 @@ function apiErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>]/g, (c) => {
-    if (c === "&") return "&amp;";
-    if (c === "<") return "&lt;";
-    return "&gt;";
-  });
-}
-
 function splitAnalysisSections(text: string) {
   const sections: Array<{ title: string; body: string }> = [];
   let currentTitle = "Çapraz Sorgu";
@@ -534,23 +526,6 @@ Karar Özeti: ${notification.message}
     const title = "Dilekçe Taslağı - Emsal Karar Dahil - Akıllı Yargı Analizi";
     const body = `Sayın Mahkemeye,\n\nSeçili belge, görsel kanıtlar ve emsal karar kapsamında yapılan inceleme aşağıdadır.\n\n${birlesik}\n\nSonuç ve Talep:\nDelile ve emsal karara dayalı tespitlerin yargılama kapsamında dikkate alınmasını saygıyla arz ve talep ederiz.`;
 
-    const html = `<!doctype html>
-<html lang="tr">
-<head>
-  <meta charset="UTF-8" />
-  <title>${escapeHtml(title)}</title>
-  <style>
-    body { font-family: Georgia, serif; line-height: 1.7; color: #172033; padding: 48px; max-width: 800px; margin: auto; }
-    h1 { font-size: 22px; border-bottom: 2px solid #172033; padding-bottom: 8px; margin-bottom: 24px; }
-    pre { white-space: pre-wrap; font: inherit; }
-  </style>
-</head>
-<body>
-  <h1>${escapeHtml(title)}</h1>
-  <pre>${escapeHtml(body)}</pre>
-</body>
-</html>`;
-
     const doc = new jsPDF({
       orientation: "portrait",
       unit: "mm",
@@ -617,8 +592,8 @@ Karar Özeti: ${notification.message}
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Hukukçular için güvenilir çalışma ortağı</p>
-          <h1>Akıllı Yargı Ekosistemi</h1>
+          <p className="eyebrow">Güvenilir çalışma ortağı</p>
+          <h1>Akıllı Yargı Ağı</h1>
         </div>
         <div className="case-chip">
           {caseId ? `Dosya ${caseId.slice(0, 8)}` : "Yeni çalışma"}

@@ -1,8 +1,9 @@
 import asyncio
+import logging
 from datetime import date
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import SessionLocal, get_db
@@ -12,6 +13,7 @@ from app.services.document_ingest import upsert_document_vectors
 from app.services.pdf_extract import extract_text_from_pdf
 
 router = APIRouter(prefix="/documents", tags=["Belgeler"])
+logger = logging.getLogger(__name__)
 
 MAX_PDF_BYTES = 25 * 1024 * 1024
 
@@ -37,6 +39,7 @@ async def _index_document_in_background(
                 tarih_iso=tarih_iso,
             )
         except Exception:
+            logger.exception("Belge vektor indeksleme arka planda basarisiz oldu: %s", document_id)
             return
 
 
@@ -52,6 +55,7 @@ async def _extract_update_and_index_in_background(
     try:
         extracted = await asyncio.to_thread(extract_text_from_pdf, pdf_bytes)
     except Exception:
+        logger.exception("PDF metin cikarma arka planda basarisiz oldu: %s", document_id)
         return
 
     text = (extracted.text or "").strip()
@@ -73,6 +77,38 @@ async def _extract_update_and_index_in_background(
         kisi_adi=kisi_adi,
         tarih_iso=tarih_iso,
     )
+
+
+def _schedule_pdf_processing(
+    *,
+    case_id: UUID,
+    document_id: UUID,
+    pdf_bytes: bytes,
+    dokuman_turu: str,
+    kisi_adi: str,
+    tarih_iso: str | None,
+) -> None:
+    async def runner() -> None:
+        await _extract_update_and_index_in_background(
+            case_id=case_id,
+            document_id=document_id,
+            pdf_bytes=pdf_bytes,
+            dokuman_turu=dokuman_turu,
+            kisi_adi=kisi_adi,
+            tarih_iso=tarih_iso,
+        )
+
+    def log_task_error(task: asyncio.Task) -> None:
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            logger.warning("PDF arka plan gorevi iptal edildi: %s", document_id)
+            return
+        if exc:
+            logger.exception("PDF arka plan gorevi beklenmeyen sekilde durdu", exc_info=exc)
+
+    task = asyncio.create_task(runner())
+    task.add_done_callback(log_task_error)
 
 
 def _parse_tarih(value: str | None) -> str | None:
@@ -139,7 +175,6 @@ async def pdf_extract_text(file: UploadFile = File(...)) -> PdfExtractResponse:
 
 @router.post("/pdf/ingest", response_model=PdfIngestResponse)
 async def pdf_ingest(
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     case_id: str | None = Form(None),
     file: UploadFile = File(...),
@@ -187,8 +222,7 @@ async def pdf_ingest(
     await db.commit()
     await db.refresh(doc)
 
-    background_tasks.add_task(
-        _extract_update_and_index_in_background,
+    _schedule_pdf_processing(
         case_id=resolved_case_id,
         document_id=doc.id,
         pdf_bytes=raw,
@@ -203,4 +237,8 @@ async def pdf_ingest(
         ocr_kullanildi=False,
         uyari="Belge dosyaya alindi; metin okuma ve analiz indeksi arka planda hazirlaniyor.",
         indeksleme_durumu="arka_planda",
+        dosya_adi=safe_name,
+        dokuman_turu=dokuman_turu,
+        kisi_adi=kisi_adi,
+        tarih_iso=tarih_str,
     )

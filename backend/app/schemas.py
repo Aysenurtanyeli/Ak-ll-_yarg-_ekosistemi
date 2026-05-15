@@ -27,6 +27,10 @@ class PdfIngestResponse(BaseModel):
     ocr_kullanildi: bool = False
     uyari: str | None = None
     indeksleme_durumu: str = "tamamlandi"
+    dosya_adi: str | None = None
+    dokuman_turu: str | None = None
+    kisi_adi: str | None = None
+    tarih_iso: str | None = None
 
 
 class TimelineEvent(BaseModel):
@@ -56,6 +60,17 @@ class CrossExamRequest(BaseModel):
 class CrossExamResponse(BaseModel):
     cevap: str
     kaynak_ozetleri: list[str] = Field(default_factory=list)
+
+
+class CrossCrewRequest(BaseModel):
+    case_id: UUID | None = None
+    sorgu: str
+    top_k: int = Field(default=8, ge=1, le=24)
+
+
+class CrossCrewResponse(BaseModel):
+    cevap: str
+    langchain_baglam: str
 
 
 class CaseCreate(BaseModel):

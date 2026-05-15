@@ -23,8 +23,10 @@ class Settings(BaseSettings):
     chat_provider: str = "ollama"
     chat_model: str = "gemma3:4b"
     vision_model: str = "gemma3:4b"
+    chat_timeout_seconds: float = 90.0
+    vision_timeout_seconds: float = 60.0
 
-    vector_store_provider: str = "local"
+    vector_store_provider: str = "pinecone"
     local_vector_store_path: str = str(PROJECT_DIR / "backend" / "data" / "vectors.json")
 
     pinecone_api_key: str = ""

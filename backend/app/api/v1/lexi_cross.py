@@ -1,9 +1,12 @@
+import asyncio
 import json
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import ValidationError
 
-from app.schemas import CrossExamRequest, CrossExamResponse
+from app.schemas import CrossCrewRequest, CrossCrewResponse, CrossExamRequest, CrossExamResponse
+from app.services.crew_service import run_legal_crew
+from app.services.langchain_service import langchain_query
 from app.services.lexi_cross import cross_exam_rag
 from app.services.llm import vision_completion
 
@@ -11,6 +14,26 @@ router = APIRouter(prefix="/lexi-cross", tags=["Capraz inceleme"])
 
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+
+@router.post("/crew", response_model=CrossCrewResponse)
+async def crew_analiz(body: CrossCrewRequest) -> CrossCrewResponse:
+    try:
+        filter_dict = {"case_id": {"$eq": str(body.case_id)}} if body.case_id else None
+        langchain_baglam = await asyncio.to_thread(
+            langchain_query,
+            body.sorgu,
+            body.top_k,
+            filter_dict,
+        )
+        crew_cevap = await asyncio.to_thread(
+            run_legal_crew,
+            belgeler=langchain_baglam,
+            sorgu=body.sorgu,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return CrossCrewResponse(cevap=crew_cevap, langchain_baglam=langchain_baglam)
 
 
 @router.post("", response_model=CrossExamResponse)

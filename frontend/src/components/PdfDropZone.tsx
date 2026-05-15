@@ -23,18 +23,33 @@ export function PdfDropZone({
   const handleFiles = useCallback(
     async (files: FileList | null) => {
       if (!files?.length || disabled) return;
-      for (const f of Array.from(files)) {
-        if (f.name.toLowerCase().endsWith(".pdf")) {
-          await onPdfFile(f);
-        } else if (onImageFile && imageTypes.has(f.type)) {
+      const selectedFiles = Array.from(files);
+      const pdfFiles = selectedFiles.filter((f) =>
+        f.name.toLowerCase().endsWith(".pdf"),
+      );
+      const imageFiles = selectedFiles.filter((f) => imageTypes.has(f.type));
+      const unsupportedFiles = selectedFiles.filter(
+        (f) => !pdfFiles.includes(f) && !imageFiles.includes(f),
+      );
+
+      for (const f of imageFiles) {
+        if (onImageFile) {
           await onImageFile(f);
         } else {
-          window.alert(
-            onImageFile
-              ? "Lütfen PDF, JPG veya PNG dosyası seçin."
-              : "Lütfen yalnızca PDF dosyası seçin.",
-          );
+          window.alert("Lütfen yalnızca PDF dosyası seçin.");
         }
+      }
+
+      for (const f of pdfFiles) {
+        await onPdfFile(f);
+      }
+
+      if (unsupportedFiles.length > 0) {
+        window.alert(
+          onImageFile
+            ? "Lütfen PDF, JPG veya PNG dosyası seçin."
+            : "Lütfen yalnızca PDF dosyası seçin.",
+        );
       }
     },
     [disabled, onImageFile, onPdfFile],
